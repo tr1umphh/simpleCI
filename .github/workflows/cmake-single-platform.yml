@@ -1,110 +1,62 @@
-{
-  "version": 6,
-  "cmakeMinimumRequired": {
-    "major": 3,
-    "minor": 21,
-    "patch": 0
-  },
-  "configurePresets": [
-    {
-      "name": "ninja",
-      "displayName": "Ninja Configure Settings",
-      "description": "Sets build and install directories",
-      "binaryDir": "${sourceDir}/builds/${presetName}",
-      "generator": "Ninja"
-    },
-    {
-      "name": "ninja-toolchain",
-      "displayName": "Ninja Configure Settings with toolchain",
-      "description": "Sets build and install directories",
-      "binaryDir": "${sourceDir}/builds/${presetName}-toolchain",
-      "generator": "Ninja",
-      "toolchainFile": "$env{TOOLCHAINFILE}"
-    },
-    {
-      "name": "ninja-multi-vcpkg",
-      "displayName": "Ninja Multi-Config Configure Settings",
-      "description": "Configure with vcpkg toolchain",
-      "binaryDir": "${sourceDir}/builds/${presetName}",
-      "generator": "Ninja Multi-Config",
-      "cacheVariables": {
-        "CMAKE_TOOLCHAIN_FILE": {
-          "type": "FILEPATH",
-          "value": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
-        }
-      }
-    }
-  ],
-  "buildPresets": [
-    {
-      "name": "ninja",
-      "configurePreset": "ninja",
-      "displayName": "Build with Ninja",
-      "description": "Build with Ninja"
-    },
-    {
-      "name": "ninja-multi-vcpkg",
-      "configurePreset": "ninja-multi-vcpkg",
-      "displayName": "Build ninja-multi-vcpkg",
-      "description": "Build ninja-multi-vcpkg Configurations"
-    },
-    {
-      "name": "ninja-toolchain",
-      "configurePreset": "ninja-toolchain",
-      "displayName": "Build ninja-toolchain",
-      "description": "Build ninja with a toolchain"
-    }
-  ],
-  "testPresets": [
-    {
-      "name": "ninja",
-      "configurePreset": "ninja"
-    },
-    {
-      "name": "ninja-multi-vcpkg",
-      "configurePreset": "ninja-multi-vcpkg"
-    }
-  ],
-  "workflowPresets": [
-    {
-      "name": "ninja-workflow",
-      "steps": [
-        {
-          "type": "configure",
-          "name": "ninja-multi-vcpkg"
-        },
-        {
-          "type": "build",
-          "name": "ninja-multi-vcpkg"
-        },
-        {
-          "type": "test",
-          "name": "ninja-multi-vcpkg"
-        }
-      ]
-    }
-  ],
-  "packagePresets": [
-    {
-      "packageName": "default-package-name",
-      "packageVersion": "0.1",
-      "name": "default",
-      "configurePreset": "ninja",
-      "generators": [
-        "TGZ"
-      ]
-    },
-    {
-      "packageName": "default-multi-package-name",
-      "packageVersion": "0.1",
-      "name": "ninja-multi-vcpkg",
-      "configurePreset": "ninja-multi-vcpkg",
-      "generators": [
-        "TGZ"
-      ],
-      "configurations": [
-        "Debug"
-      ]
-    }
-  ]
-}
+# Copyright (c) 2020-2021-2022-2023 Luca Cappa
+# Released under the term specified in file LICENSE.txt
+# SPDX short identifier: MIT
+#
+# The peculiarity of this workflow is that assumes vcpkg is NOT stored as a submodule of 
+# this repository.
+# The workflow does the following:
+# - Using the provided Git commit id, sets up vcpkg if needed, then run CMake with
+#   CMakePreset.json using a configuration that leverages the vcpkg's toolchain file. 
+#   This will automatically run vcpkg to install dependencies described by the vcpkg.json
+#   manifest file. 
+#   vcpkg's Binary Caching backed by GH Action cache is being used. It will be a no-op if 
+#   the dependencies are restored from GH Action cache.
+# - Finally builds the sources with Ninja.
+name: hosted-ninja-vcpkg-cacheoff
+on: [push, workflow_dispatch]
+
+jobs:
+  job:
+    name: ${{ matrix.os }}-${{ github.workflow }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        include:
+          - os: ubuntu-latest
+            vcpkgCommitId: 'a42af01b72c28a8e1d7b48107b33e4f286a55ef6'
+
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
+
+      - uses: lukka/get-cmake@latest
+      - name: Dump the content of $RUNNER_TEMP
+        run: find $RUNNER_TEMP
+        shell: bash
+      - name: Dump the content of $RUNNER_WORKSPACE
+        run: find $RUNNER_WORKSPACE
+        shell: bash
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        id: runvcpkg
+        with:
+          # This specifies the location of vcpkg, where it is going to be restored from cache, or create from scratch.
+          vcpkgDirectory: '${{ runner.workspace }}/b/vcpkg'
+          # The Git commit id of vcpkg to be checked out. This is only needed because we are not using a submodule.
+          vcpkgGitCommitId: '${{ matrix.vcpkgCommitId}}'
+          # The vcpkg.json file, which will be part of cache key computation.
+          vcpkgJsonGlob: '**/cmakepresets/vcpkg.json'
+
+      - name: Prints output of run-vcpkg's action
+        run: echo "root='${{ steps.runvcpkg.outputs.RUNVCPKG_VCPKG_ROOT_OUT }}', triplet='${{ steps.runvcpkg.outputs.RUNVCPKG_VCPKG_DEFAULT_TRIPLET_OUT }}'"
+
+      - name: Run CMake with vcpkg.json manifest
+        uses: lukka/run-cmake@v10
+        with:
+          cmakeListsTxtPath: '${{ github.workspace }}/cmakepresets/CMakeLists.txt'
+          configurePreset: ninja-multi-vcpkg
+          buildPreset: ninja-multi-vcpkg
