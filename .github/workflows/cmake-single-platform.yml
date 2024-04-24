@@ -60,3 +60,7 @@ jobs:
           cmakeListsTxtPath: '${{ github.workspace }}/CMakeLists.txt'
           configurePreset: ninja-multi-vcpkg
           buildPreset: ninja-multi-vcpkg
+
+      - name: Run unit test
+        run: ls ${{ github.workspace }}/build
+        shell: bash
