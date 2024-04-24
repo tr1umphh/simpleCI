@@ -62,5 +62,5 @@ jobs:
           buildPreset: ninja-multi-vcpkg
 
       - name: Run unit test
-        run: ls ${{ github.workspace }}/build
+        run: ls ${{ github.workspace }}
         shell: bash
